@@ -1,4 +1,4 @@
-# MuleFlow IDP — Salesforce OAuth2 + Flow IDP Service
+# MuleFlow IDP — Flow IDP as an Invocable Service
 
 A MuleSoft 4 application that authenticates with Salesforce using the **client credentials** grant type, caches the access token in the Object Store, and submits documents to the **Salesforce Flow IDP** `extractDataFromDocument` action.
 
