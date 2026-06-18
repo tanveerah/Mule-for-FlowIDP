@@ -79,10 +79,15 @@ output application/json
             </ee:message>
         </ee:transform>
 
+        <set-variable variableName="accessToken"
+            value="#[payload.access_token]"
+            doc:name="Store Access Token"
+            doc:description="Stores the retrieved Salesforce OAuth2 access token in a flow variable named accessToken for use in downstream processors" />
+
         <logger level="INFO"
-            message="#['Salesforce access token retrieved successfully. Token type: ' ++ (payload.token_type default 'unknown')]"
+            message="#['Salesforce access token retrieved successfully. Token type: ' ++ (payload.token_type default 'unknown') ++ '. Token stored in flow variable accessToken.']"
             doc:name="Log token retrieval success"
-            doc:description="Logs that the Salesforce OAuth2 access token was retrieved successfully, including the token type" />
+            doc:description="Logs that the Salesforce OAuth2 access token was retrieved successfully and stored in the accessToken flow variable" />
 
         <error-handler>
             <on-error-propagate type="HTTP:UNAUTHORIZED"
