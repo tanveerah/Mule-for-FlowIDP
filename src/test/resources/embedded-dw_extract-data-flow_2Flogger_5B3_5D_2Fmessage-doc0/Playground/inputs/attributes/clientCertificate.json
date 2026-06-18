@@ -1,0 +1,75 @@
+{
+  "basicConstraints": 80,
+  "criticalExtensionOIDs": [
+    "felis",
+    "a",
+    "venenatis"
+  ],
+  "extendedKeyUsage": [
+    "In",
+    "viverra"
+  ],
+  "extensions": [
+    {
+      "criticality": false,
+      "oid": "molestie"
+    }
+  ],
+  "issuerAlternativeNames": [
+    {
+      "name": "Cordell",
+      "type": 66
+    }
+  ],
+  "issuerDN": {
+    "commonName": "pretium",
+    "name": "Danny"
+  },
+  "issuerUniqueID": [
+    false,
+    false,
+    true
+  ],
+  "issuerX500Principal": {
+    "name": "Alfonzo"
+  },
+  "keyUsage": [
+    true,
+    true,
+    true
+  ],
+  "name": "Chadwick",
+  "nonCriticalExtensionOIDs": [
+    "at",
+    "tincidunt"
+  ],
+  "notAfter": "2021-08-09",
+  "notBefore": "2025-03-23",
+  "publicKey": {
+    "algorithm": "semper",
+    "modulus": 11,
+    "params": 48,
+    "publicKey": "ac"
+  },
+  "serialNumber": 30,
+  "serialNumberObject": {
+    "serialNumber": 22
+  },
+  "sigAlgName": "nunc",
+  "sigAlgOID": "felis",
+  "subjectAlternativeNames": [
+    {
+      "name": "Adrianne",
+      "type": 17
+    }
+  ],
+  "subjectDN": {
+    "commonName": "pretium",
+    "name": "Alisia"
+  },
+  "subjectX500Principal": {
+    "name": "Alex"
+  },
+  "type": "Nam",
+  "version": 78
+}

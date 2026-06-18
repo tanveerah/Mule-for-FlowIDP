@@ -4,3 +4,5 @@ salesforce:
   port: "443"
   basePath: "/services/oauth2"
   grantType: "client_credentials"
+  apiVersion: "v67.0"
+  idpConfigName: "Extract_from_DL"

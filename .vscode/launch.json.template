@@ -1,0 +1,15 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "mule-xml-debugger",
+      "request": "launch",
+      "name": "Run MuleFlow-IDP",
+      "noDebug": true,
+      "mule.projects": [
+        "${workspaceFolder:MuleFlow-IDP}"
+      ],
+      "mule.runtime.args": "-M-Dsalesforce.host=<YOUR_SALESFORCE_INSTANCE>.my.salesforce.com -M-Dsalesforce.idpConfigName=<YOUR_IDP_CONFIG_NAME>"
+    }
+  ]
+}

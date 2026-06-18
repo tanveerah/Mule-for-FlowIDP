@@ -1,0 +1,73 @@
+{
+  "basicConstraints": 62,
+  "criticalExtensionOIDs": [
+    "dui",
+    "nisi"
+  ],
+  "extendedKeyUsage": [
+    "semper",
+    "justo"
+  ],
+  "extensions": [
+    {
+      "criticality": false,
+      "oid": "libero"
+    }
+  ],
+  "issuerAlternativeNames": [
+    {
+      "name": "Coleman",
+      "type": 48
+    }
+  ],
+  "issuerDN": {
+    "commonName": "ipsum",
+    "name": "Alida"
+  },
+  "issuerUniqueID": [
+    false,
+    false
+  ],
+  "issuerX500Principal": {
+    "name": "Carmine"
+  },
+  "keyUsage": [
+    true,
+    false,
+    false
+  ],
+  "name": "Darell",
+  "nonCriticalExtensionOIDs": [
+    "libero",
+    "nunc"
+  ],
+  "notAfter": "2025-06-28",
+  "notBefore": "2026-05-21",
+  "publicKey": {
+    "algorithm": "molestie",
+    "modulus": 10,
+    "params": 72,
+    "publicKey": "libero"
+  },
+  "serialNumber": 14,
+  "serialNumberObject": {
+    "serialNumber": 5
+  },
+  "sigAlgName": "ipsum",
+  "sigAlgOID": "arcu",
+  "subjectAlternativeNames": [
+    {
+      "name": "Carmen",
+      "type": 22
+    }
+  ],
+  "subjectDN": {
+    "commonName": "tincidunt",
+    "name": "Charles"
+  },
+  "subjectX500Principal": {
+    "name": "Allyson"
+  },
+  "type": "venenatis",
+  "version": 87
+}

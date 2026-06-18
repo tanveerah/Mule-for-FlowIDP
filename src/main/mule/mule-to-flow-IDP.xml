@@ -1,0 +1,430 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:os="http://www.mulesoft.org/schema/mule/os"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+        http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+        http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd">
+
+    <configuration-properties file="config.yaml"
+        doc:name="Configuration Properties"
+        doc:description="Loads Salesforce connection settings (host, port, basePath) from config.yaml resource file" />
+
+    <http:listener-config name="HTTP_Listener_config"
+        doc:name="HTTP Listener Config"
+        doc:description="HTTP listener configuration on host 0.0.0.0 port 8081 to receive incoming token requests">
+        <http:listener-connection host="0.0.0.0" port="8081"
+            doc:description="Binds the HTTP listener to all network interfaces on port 8081 to accept incoming connections" />
+    </http:listener-config>
+
+    <http:request-config name="Salesforce_OAuth_Request_Config"
+        doc:name="Salesforce OAuth Request Config"
+        doc:description="HTTPS request configuration targeting the Salesforce OAuth2 token endpoint at your Salesforce instance URL">
+        <http:request-connection
+            protocol="HTTPS"
+            host="${salesforce.host}"
+            port="${salesforce.port}"
+            doc:description="Establishes an HTTPS connection to the Salesforce OAuth2 endpoint using host and port from config.yaml" />
+    </http:request-config>
+
+    <!-- ═══════════════════════════════════════════════════════
+         Flow 1: Get Salesforce Access Token
+         POST /token  →  returns access_token, token_type, instance_url
+         ═══════════════════════════════════════════════════════ -->
+    <flow name="get-salesforce-access-token-flow"
+        doc:name="Get Salesforce Access Token Flow"
+        doc:description="Exposes POST /token; accepts clientId and clientSecret in the JSON request body and retrieves a Salesforce OAuth2 access token using client credentials grant">
+
+        <http:listener path="/token" allowedMethods="POST"
+            config-ref="HTTP_Listener_config"
+            doc:name="POST /token"
+            doc:description="Receives incoming POST requests on /token with JSON body containing clientId and clientSecret to trigger Salesforce OAuth2 token retrieval" />
+
+        <logger level="INFO"
+            message="Requesting Salesforce OAuth2 access token using client credentials flow"
+            doc:name="Log token request start"
+            doc:description="Logs the initiation of the Salesforce OAuth2 token request before calling the token endpoint" />
+
+        <ee:transform
+            doc:name="Build OAuth2 Request Body"
+            doc:description="Reads grant_type from config.yaml and clientId and clientSecret from the POST request body; builds a URL-encoded form body for the Salesforce OAuth2 token request">
+            <ee:message doc:description="Defines the output message payload as a URL-encoded form body for the Salesforce token request">
+                <ee:set-payload doc:description="Constructs grant_type, client_id, and client_secret as URL-encoded form data for the Salesforce OAuth2 token request"><![CDATA[%dw 2.0
+output application/x-www-form-urlencoded
+---
+{
+    grant_type: p("salesforce.grantType"),
+    client_id: payload.clientId,
+    client_secret: payload.clientSecret
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+
+        <http:request method="POST" path="/services/oauth2/token"
+            config-ref="Salesforce_OAuth_Request_Config"
+            doc:name="POST to Salesforce OAuth2 Token Endpoint"
+            doc:description="Posts client credentials as URL-encoded form data to Salesforce /services/oauth2/token to obtain an access token">
+            <http:headers><![CDATA[#[{"Content-Type": "application/x-www-form-urlencoded"}]]]></http:headers>
+        </http:request>
+
+        <ee:transform
+            doc:name="Extract Access Token from Response"
+            doc:description="Extracts access_token, token_type, and instance_url from the Salesforce OAuth2 JSON response and returns them as the HTTP response payload">
+            <ee:message doc:description="Defines the output message payload extracted from the Salesforce OAuth2 JSON response">
+                <ee:set-payload doc:description="Extracts access_token, token_type, and instance_url from the Salesforce OAuth2 response into a JSON object"><![CDATA[%dw 2.0
+output application/json
+---
+{
+    access_token: payload.access_token,
+    token_type: payload.token_type,
+    instance_url: payload.instance_url
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+
+        <os:store key="salesforce_access_token"
+            failIfPresent="false"
+            failOnNullValue="false"
+            doc:name="Store Access Token in Object Store"
+            doc:description="Stores the Salesforce access token in the default Mule in-memory Object Store. Works on CH1, CH2, on-prem, and RTF — all flows in the same app instance share this store.">
+            <os:value>#[payload.access_token]</os:value>
+        </os:store>
+
+        <logger level="INFO"
+            message="#['Salesforce access token stored in Object Store. Token type: ' ++ (payload.token_type default 'unknown') ++ '. Key: salesforce_access_token.']"
+            doc:name="Log token stored in Object Store"
+            doc:description="Logs that the Salesforce OAuth2 access token was successfully stored in the Object Store under key salesforce_access_token" />
+
+        <error-handler doc:description="Handles HTTP errors from the Salesforce OAuth2 token endpoint including 401 Unauthorized and connectivity failures">
+            <on-error-propagate type="HTTP:UNAUTHORIZED"
+                doc:name="Handle Unauthorized"
+                doc:description="Handles 401 Unauthorized from Salesforce; typically caused by invalid client_id or client_secret in the request body">
+                <ee:transform
+                    doc:name="Build 401 Error Response"
+                    doc:description="Formats a JSON error body explaining that the Salesforce credentials are invalid">
+                    <ee:message doc:description="Defines the output message payload for the 401 Unauthorized error response">
+                        <ee:set-payload doc:description="Builds a JSON error body with error type, message, and error details for the 401 Unauthorized response"><![CDATA[%dw 2.0
+output application/json
+---
+{
+    error: "Unauthorized",
+    message: "Failed to obtain Salesforce access token. Verify the clientId and clientSecret in the request body.",
+    details: error.description
+}]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+            </on-error-propagate>
+            <on-error-propagate type="HTTP:CONNECTIVITY"
+                doc:name="Handle Connectivity Error"
+                doc:description="Handles connectivity failures when reaching the Salesforce OAuth2 endpoint; check the host in config.yaml">
+                <ee:transform
+                    doc:name="Build Connectivity Error Response"
+                    doc:description="Formats a JSON error body for connectivity failures to the Salesforce OAuth2 endpoint">
+                    <ee:message doc:description="Defines the output message payload for the connectivity error response">
+                        <ee:set-payload doc:description="Builds a JSON error body describing the Salesforce OAuth2 connectivity failure with error details"><![CDATA[%dw 2.0
+output application/json
+---
+{
+    error: "Connectivity Error",
+    message: "Unable to connect to Salesforce OAuth2 endpoint. Check the Salesforce host in config.yaml.",
+    details: error.description
+}]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+            </on-error-propagate>
+        </error-handler>
+    </flow>
+
+    <!-- ═══════════════════════════════════════════════════════
+         Flow 2: Get Cached Salesforce Access Token
+         GET /token/cached  →  returns cached access_token from Object Store
+         ═══════════════════════════════════════════════════════ -->
+    <flow name="get-cached-salesforce-token-flow"
+        doc:name="Get Cached Salesforce Token Flow"
+        doc:description="Exposes GET /token/cached; retrieves the Salesforce access token from the default Object Store and returns it as a JSON response">
+
+        <http:listener path="/token/cached" allowedMethods="GET"
+            config-ref="HTTP_Listener_config"
+            doc:name="GET /token/cached"
+            doc:description="Receives incoming GET requests on /token/cached to retrieve the cached Salesforce access token from the Object Store" />
+
+        <try doc:name="Try Retrieve Cached Token"
+            doc:description="Attempts to retrieve the cached Salesforce access token; handles OS:KEY_NOT_FOUND gracefully when no token has been stored yet">
+            <os:retrieve key="salesforce_access_token"
+                target="accessToken"
+                doc:name="Retrieve Access Token from Object Store"
+                doc:description="Retrieves the value stored under key 'salesforce_access_token' from the default Object Store into vars.accessToken" />
+            <error-handler>
+                <on-error-continue type="OS:KEY_NOT_FOUND"
+                    doc:name="Handle Key Not Found"
+                    doc:description="Handles the case when no token has been stored yet; sets accessToken to null so the choice router returns a 404-style response">
+                    <set-variable variableName="accessToken"
+                        value="#[null]"
+                        doc:name="Set Null Token"
+                        doc:description="Sets accessToken to null when the key does not exist in the Object Store" />
+                </on-error-continue>
+            </error-handler>
+        </try>
+
+        <choice doc:name="Check Token Exists"
+            doc:description="Routes based on whether a cached Salesforce access token was found in the Object Store">
+            <when expression="#[vars.accessToken != null]"
+                doc:name="Token Found"
+                doc:description="Returns the cached access token as JSON when it exists in the Object Store">
+                <ee:transform doc:name="Build Token Response"
+                    doc:description="Builds a JSON response containing the cached Salesforce access token retrieved from the Object Store">
+                    <ee:message doc:description="Defines the output message payload as a JSON object with the access_token field">
+                        <ee:set-payload doc:description="Creates a JSON payload with the access_token value retrieved from the Object Store"><![CDATA[%dw 2.0
+output application/json
+---
+{
+    access_token: vars.accessToken
+}]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+            </when>
+            <otherwise doc:name="Token Not Found"
+                doc:description="Returns a 404-style JSON error when no cached token exists in the Object Store">
+                <ee:transform doc:name="Build Token Not Found Response"
+                    doc:description="Builds a JSON error response indicating no Salesforce access token is cached; caller should invoke POST /token first">
+                    <ee:message doc:description="Defines the output message payload as a JSON error object">
+                        <ee:set-payload doc:description="Creates a JSON error payload indicating the token is not present in the Object Store"><![CDATA[%dw 2.0
+output application/json
+---
+{
+    error: "Token Not Found",
+    message: "No Salesforce access token found in Object Store. Call POST /token first."
+}]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+            </otherwise>
+        </choice>
+
+        <error-handler doc:description="Handles unexpected errors when retrieving the cached access token from the Object Store">
+            <on-error-propagate type="ANY"
+                doc:name="Handle Retrieval Error"
+                doc:description="Catches any unexpected error during Object Store token retrieval and returns a structured JSON error response">
+                <ee:transform doc:name="Build 500 Error Response"
+                    doc:description="Formats a JSON 500 error body for unexpected errors during cached token retrieval">
+                    <ee:message doc:description="Defines the output message payload for the 500 Internal Server Error response">
+                        <ee:set-payload doc:description="Builds a JSON 500 error body for unexpected failures retrieving the cached Salesforce token"><![CDATA[%dw 2.0
+output application/json
+---
+{
+    error: "Internal Server Error",
+    message: "An unexpected error occurred while retrieving the cached access token.",
+    details: error.description
+}]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+            </on-error-propagate>
+        </error-handler>
+    </flow>
+
+    <!-- ═══════════════════════════════════════════════════════
+         Flow 3: Extract Data via Salesforce Flow IDP
+         POST /extract-data  →  multipart: file
+         Reads access token from Object Store (no re-authentication),
+         Base64-encodes the file, calls extractDataFromDocument,
+         returns IDP JSON response.
+         ═══════════════════════════════════════════════════════ -->
+    <flow name="extract-data-flow"
+        doc:name="Extract Data Flow"
+        doc:description="Accepts POST /extract-data with a multipart file; reads the Salesforce access token from the Object Store, Base64-encodes the file, and calls Flow IDP to extract document data">
+
+        <http:listener path="/extract-data" allowedMethods="POST"
+            config-ref="HTTP_Listener_config"
+            doc:name="POST /extract-data"
+            doc:description="Receives incoming POST requests on /extract-data with a multipart/form-data body containing a file part named 'file'" />
+
+        <!-- Step 1: Extract file FIRST while payload is still the multipart object -->
+        <ee:transform
+            doc:name="Extract and Base64-encode File"
+            doc:description="Reads the 'file' part from the multipart payload, extracts MIME type and filename, and encodes the binary content as a Base64 string">
+            <ee:message doc:description="Defines the output message payload containing the Base64-encoded file data from the multipart request">
+                <ee:set-payload doc:description="Extracts filename, MIME type, and Base64-encoded binary content from the multipart file part into a JSON object"><![CDATA[%dw 2.0
+import toBase64 from dw::core::Binaries
+output application/json
+var filePart = payload.parts.file
+var fileName = filePart.headers.'Content-Disposition'.filename default "attachment"
+---
+{
+    fileName: fileName,
+    mimeType: filePart.headers.'Content-Type',
+    base64Content: toBase64(filePart.content as Binary)
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+
+        <logger level="INFO"
+            message="#['File encoded. MIME type: ' ++ (payload.mimeType default 'unknown') ++ ', fileName: ' ++ (payload.fileName default 'unknown')]"
+            doc:name="Log File Extracted"
+            doc:description="Logs the MIME type and filename of the uploaded file after Base64 encoding" />
+
+        <!-- Step 2: Save file data before payload is replaced by the Object Store retrieve -->
+        <set-variable variableName="fileBase64Content"
+            value="#[payload.base64Content]"
+            doc:name="Store Base64 Content"
+            doc:description="Saves the Base64-encoded file content to a variable before os:retrieve replaces the payload" />
+
+        <set-variable variableName="fileMimeType"
+            value="#[payload.mimeType]"
+            doc:name="Store MIME Type"
+            doc:description="Saves the detected MIME type of the uploaded file for use in the IDP request body" />
+
+        <!-- Step 3: Retrieve the cached access token AFTER file data is saved -->
+        <try doc:name="Try Retrieve Access Token"
+            doc:description="Attempts to retrieve the Salesforce access token from the Object Store; returns a 401-style error if no token has been stored yet">
+            <os:retrieve key="salesforce_access_token"
+                target="accessToken"
+                doc:name="Retrieve Access Token from Object Store"
+                doc:description="Reads the Salesforce OAuth2 access token stored under key 'salesforce_access_token' into vars.accessToken" />
+            <error-handler>
+                <on-error-propagate type="OS:KEY_NOT_FOUND"
+                    doc:name="Handle Token Not Cached"
+                    doc:description="Propagates a 401-style error when no Salesforce access token exists in the Object Store; caller must invoke POST /token first">
+                    <ee:transform doc:name="Build Token Missing Error"
+                        doc:description="Formats a JSON 401 error response indicating the caller must obtain a token via POST /token before uploading a file">
+                        <ee:message doc:description="Defines the output message payload for the missing token error response">
+                            <ee:set-payload doc:description="Builds a JSON error body prompting the caller to invoke POST /token first"><![CDATA[%dw 2.0
+output application/json
+---
+{
+    error: "Unauthorized",
+    message: "No Salesforce access token found in Object Store. Call POST /token first."
+}]]></ee:set-payload>
+                        </ee:message>
+                    </ee:transform>
+                </on-error-propagate>
+            </error-handler>
+        </try>
+
+        <logger level="INFO"
+            message="Access token retrieved from Object Store. Building IDP request."
+            doc:name="Log Token Retrieved"
+            doc:description="Logs that the Salesforce access token was successfully retrieved from the Object Store" />
+
+        <!-- Build and send the Salesforce Flow IDP request -->
+        <ee:transform
+            doc:name="Build IDP Request Body"
+            doc:description="Constructs the JSON request body for the Salesforce Flow IDP extractDataFromDocument action using the Base64 file content and MIME type">
+            <ee:message doc:description="Defines the output message payload as the JSON body expected by the Salesforce extractDataFromDocument action">
+                <ee:set-payload doc:description="Wraps fileContent, mimeType, and documentProcessingConfiguration into the inputs array required by the IDP action API"><![CDATA[%dw 2.0
+output application/json
+---
+{
+    "inputs": [
+        {
+            "fileContent": vars.fileBase64Content,
+            "mimeType": vars.fileMimeType,
+            "documentProcessingConfiguration": p("salesforce.idpConfigName")
+        }
+    ]
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+
+        <http:request method="POST" path="/services/data/${salesforce.apiVersion}/actions/standard/extractDataFromDocument"
+            config-ref="Salesforce_OAuth_Request_Config"
+            doc:name="POST to Salesforce Flow IDP"
+            doc:description="Sends the Base64-encoded file to the Salesforce Flow IDP extractDataFromDocument action using the access token retrieved from the Object Store">
+            <http:headers><![CDATA[#[{
+    "Authorization": "Bearer " ++ ((vars.accessToken as String) default ""),
+    "Content-Type": "application/json"
+}]]]></http:headers>
+        </http:request>
+
+        <ee:transform
+            doc:name="Parse IDP Response as JSON"
+            doc:description="Converts the Salesforce Flow IDP response into a JSON object containing extractedData fields, confidence scores, and the needsManualReview flag">
+            <ee:message doc:description="Defines the output message payload as the parsed JSON representation of the IDP extraction response">
+                <ee:set-payload doc:description="Outputs the full IDP response array including actionName, isSuccess, outputValues with extractedData and extractedDataJson"><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+
+        <logger level="INFO"
+            message="#['Flow IDP extraction complete. Success: ' ++ (payload[0].isSuccess default false as String) ++ '. Needs manual review: ' ++ (payload[0].outputValues.extractedData.needsManualReview.value default false as String)]"
+            doc:name="Log IDP Extraction Result"
+            doc:description="Logs the outcome of the Flow IDP document extraction including success status and whether manual review is required" />
+
+        <error-handler doc:description="Handles errors during file extraction and IDP document processing">
+            <on-error-propagate type="HTTP:UNAUTHORIZED"
+                doc:name="Handle IDP Unauthorized"
+                doc:description="Handles 401 Unauthorized from the Salesforce IDP endpoint; the cached token may be expired — call POST /token to refresh it">
+                <ee:transform doc:name="Build 401 IDP Error Response"
+                    doc:description="Formats a JSON 401 error indicating the cached token is expired; caller should refresh via POST /token">
+                    <ee:message doc:description="Defines the output message payload for the 401 Unauthorized IDP error response">
+                        <ee:set-payload doc:description="Builds a JSON error body for IDP authorization failures with token expiry guidance"><![CDATA[%dw 2.0
+output application/json
+---
+{
+    error: "Unauthorized",
+    message: "Salesforce token is expired or invalid. Call POST /token to refresh the cached access token.",
+    details: error.description
+}]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+            </on-error-propagate>
+            <on-error-propagate type="HTTP:BAD_REQUEST"
+                doc:name="Handle IDP Bad Request"
+                doc:description="Handles 400 Bad Request from the Salesforce IDP endpoint; typically caused by an unsupported MIME type or incorrect IDP config name">
+                <ee:transform doc:name="Build 400 IDP Error Response"
+                    doc:description="Formats a JSON 400 error body indicating the IDP request is malformed or the file type is not supported">
+                    <ee:message doc:description="Defines the output message payload for the 400 Bad Request IDP error response">
+                        <ee:set-payload doc:description="Builds a JSON error body for IDP bad request failures indicating unsupported file type or incorrect IDP config name"><![CDATA[%dw 2.0
+output application/json
+---
+{
+    error: "Bad Request",
+    message: "Salesforce Flow IDP rejected the request. Ensure the file type is PDF, PNG, or JPEG and the IDP config name is correct.",
+    details: error.description
+}]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+            </on-error-propagate>
+            <on-error-propagate type="MULE:EXPRESSION"
+                doc:name="Handle Missing File Part"
+                doc:description="Handles DataWeave expression errors caused by a missing or malformed 'file' part in the multipart request body">
+                <ee:transform doc:name="Build 400 Missing File Error"
+                    doc:description="Formats a JSON 400 error body explaining that the request must include a multipart file part named 'file'">
+                    <ee:message doc:description="Defines the output message payload for the missing file part error response">
+                        <ee:set-payload doc:description="Builds a JSON 400 error body for requests missing the required multipart file part named 'file'"><![CDATA[%dw 2.0
+output application/json
+---
+{
+    error: "Bad Request",
+    message: "Request must include a multipart/form-data body with a file part named 'file'.",
+    details: error.description
+}]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+            </on-error-propagate>
+            <on-error-propagate type="ANY"
+                doc:name="Handle General Error"
+                doc:description="Catches any unexpected error during file extraction or IDP processing and returns a structured JSON error response">
+                <ee:transform doc:name="Build 500 Error Response"
+                    doc:description="Formats a JSON 500 error body for unexpected errors during file processing or IDP call">
+                    <ee:message doc:description="Defines the output message payload for the 500 Internal Server Error response">
+                        <ee:set-payload doc:description="Builds a JSON 500 error body for unexpected failures during file attachment processing or IDP invocation"><![CDATA[%dw 2.0
+output application/json
+---
+{
+    error: "Internal Server Error",
+    message: "An unexpected error occurred while processing the file.",
+    details: error.description
+}]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+            </on-error-propagate>
+        </error-handler>
+    </flow>
+
+</mule>

@@ -1,0 +1,75 @@
+{
+  "basicConstraints": 59,
+  "criticalExtensionOIDs": [
+    "a",
+    "consectetur",
+    "Nam"
+  ],
+  "extendedKeyUsage": [
+    "eros",
+    "pulvinar",
+    "nunc"
+  ],
+  "extensions": [
+    {
+      "criticality": false,
+      "oid": "felis"
+    }
+  ],
+  "issuerAlternativeNames": [
+    {
+      "name": "Aleshia",
+      "type": 26
+    }
+  ],
+  "issuerDN": {
+    "commonName": "arcu",
+    "name": "Amparo"
+  },
+  "issuerUniqueID": [
+    false,
+    true
+  ],
+  "issuerX500Principal": {
+    "name": "Alise"
+  },
+  "keyUsage": [
+    true,
+    true,
+    true
+  ],
+  "name": "Anabel",
+  "nonCriticalExtensionOIDs": [
+    "dui",
+    "a"
+  ],
+  "notAfter": "2026-05-19",
+  "notBefore": "2025-10-05",
+  "publicKey": {
+    "algorithm": "consectetur",
+    "modulus": 52,
+    "params": 63,
+    "publicKey": "dolor"
+  },
+  "serialNumber": 81,
+  "serialNumberObject": {
+    "serialNumber": 70
+  },
+  "sigAlgName": "a",
+  "sigAlgOID": "consectetur",
+  "subjectAlternativeNames": [
+    {
+      "name": "Carmelo",
+      "type": 62
+    }
+  ],
+  "subjectDN": {
+    "commonName": "dolor",
+    "name": "Amber"
+  },
+  "subjectX500Principal": {
+    "name": "Aliza"
+  },
+  "type": "amet",
+  "version": 51
+}
