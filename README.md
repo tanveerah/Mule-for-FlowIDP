@@ -196,5 +196,5 @@ All errors return a structured JSON body with `error`, `message`, and `details` 
 
 - MuleSoft Anypoint Studio 7+ or Mule Runtime 4.x
 - A Salesforce Connected App with the **Client Credentials** OAuth flow enabled
-- A Salesforce Flow IDP configuration named `Extract_from_DL` (or update `salesforce.idpConfigName` in `config.yaml`)
+- A document extraction configuration created in Salesforce Flow IDP; set its name as the value of `salesforce.idpConfigName` in `config.yaml`
 - `mule-objectstore-connector` 1.3.0 (declared in `pom.xml`)
