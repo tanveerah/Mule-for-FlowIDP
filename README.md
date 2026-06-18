@@ -1,70 +1,127 @@
 # MuleFlow IDP — Flow IDP as an Invocable Service
 
-A MuleSoft 4 application that authenticates with Salesforce using the **client credentials** grant type, caches the access token in the Object Store, and submits documents to the **Salesforce Flow IDP** `extractDataFromDocument` action.
+A MuleSoft 4 application that exposes Salesforce **Flow IDP** document extraction as a set of REST endpoints. It handles OAuth2 authentication via the client credentials grant, caches the access token in the Object Store, and invokes the `extractDataFromDocument` action on demand.
 
 ---
 
-## Flow Overview
+## Table of Contents
 
-| Flow | Endpoint | Purpose |
-|------|----------|---------|
-| `get-salesforce-access-token-flow` | `POST /token` | Obtain a Salesforce OAuth2 token and cache it |
-| `get-cached-salesforce-token-flow` | `GET /token/cached` | Read the cached token from the Object Store |
-| `extract-data-flow` | `POST /extract-data` | Submit a file to Flow IDP using the cached token |
+- [Architecture](#architecture)
+- [Endpoints](#endpoints)
+- [Flow Details](#flow-details)
+- [Configuration](#configuration)
+- [Error Handling](#error-handling)
+- [Prerequisites](#prerequisites)
 
 ---
 
-### `get-salesforce-access-token-flow`
+## Architecture
 
 ```
-POST /token  →  Build form body  →  POST Salesforce /services/oauth2/token  →  Store in Object Store  →  Return token
+Client
+  │
+  ├─ POST /token         → Salesforce OAuth2 → access_token cached in Object Store
+  ├─ GET  /token/cached  → Object Store read → return cached token
+  └─ POST /extract-data  → Object Store read → Salesforce Flow IDP → return extracted data
+```
+
+The token and extraction flows are intentionally decoupled. Obtain a token once via `POST /token`, then call `POST /extract-data` as many times as needed without re-authenticating until the token expires.
+
+---
+
+## Endpoints
+
+| Method | Path | Flow | Description |
+|--------|------|------|-------------|
+| `POST` | `/token` | `get-salesforce-access-token-flow` | Obtain a Salesforce OAuth2 token and cache it |
+| `GET` | `/token/cached` | `get-cached-salesforce-token-flow` | Read the cached token from the Object Store |
+| `POST` | `/extract-data` | `extract-data-flow` | Submit a document to Flow IDP using the cached token |
+
+All endpoints listen on port `8081`.
+
+---
+
+## Flow Details
+
+### `get-salesforce-access-token-flow` — `POST /token`
+
+```
+POST /token
+  → Build URL-encoded form body
+  → POST to Salesforce /services/oauth2/token
+  → Extract access_token, token_type, instance_url
+  → Store access_token in Object Store
+  → Return token response
 ```
 
 | Step | Description |
 |------|-------------|
-| **HTTP Listener** | Listens on `0.0.0.0:8081`. Accepts `POST /token` with a JSON body containing `clientId` and `clientSecret`. |
-| **Transform — Build OAuth2 Request Body** | Reads `grant_type` from `config.yaml` and combines it with `clientId`/`clientSecret` into a `application/x-www-form-urlencoded` payload. |
-| **HTTP Request — Salesforce Token Endpoint** | POSTs the form body to `https://<your-salesforce-url>/services/oauth2/token`. |
-| **Transform — Extract Token** | Parses the Salesforce response and returns `access_token`, `token_type`, and `instance_url` as JSON. |
-| **Object Store — Store Token** | Stores `access_token` under key `salesforce_access_token` in the default in-memory Object Store. |
+| **HTTP Listener** | Accepts `POST /token` with a JSON body containing `clientId` and `clientSecret`. |
+| **Transform** | Combines `grant_type` (from `config.yaml`) with `clientId` and `clientSecret` into a `application/x-www-form-urlencoded` payload. |
+| **HTTP Request** | POSTs credentials to `https://<your-salesforce-url>/services/oauth2/token`. |
+| **Transform** | Extracts `access_token`, `token_type`, and `instance_url` from the Salesforce response. |
+| **Object Store** | Persists `access_token` under key `salesforce_access_token` in the default in-memory Object Store. |
 
 ---
 
-### `get-cached-salesforce-token-flow`
+### `get-cached-salesforce-token-flow` — `GET /token/cached`
 
 ```
-GET /token/cached  →  Retrieve from Object Store  →  Return token (or 404 if not found)
+GET /token/cached
+  → Read salesforce_access_token from Object Store
+  → Return token (or error if not found)
 ```
 
 | Step | Description |
 |------|-------------|
-| **HTTP Listener** | Accepts `GET /token/cached`. |
-| **Object Store — Retrieve Token** | Reads `salesforce_access_token` from the Object Store into `vars.accessToken`. Handles `OS:KEY_NOT_FOUND` by setting the variable to `null`. |
-| **Choice — Token Exists?** | Returns `{"access_token": "..."}` if found; returns a `Token Not Found` error body if not. |
+| **HTTP Listener** | Accepts `GET /token/cached`. No request body required. |
+| **Object Store** | Reads `salesforce_access_token` into `vars.accessToken`. Sets variable to `null` on `OS:KEY_NOT_FOUND`. |
+| **Choice Router** | Returns `{"access_token": "..."}` if found; returns a `Token Not Found` error if not. |
 
 ---
 
-### `extract-data-flow`
+### `extract-data-flow` — `POST /extract-data`
 
 ```
-POST /extract-data  →  Base64-encode file  →  Retrieve token from Object Store  →  POST to Flow IDP  →  Return IDP response
+POST /extract-data  (multipart/form-data, file part)
+  → Base64-encode uploaded file
+  → Read access_token from Object Store
+  → POST to Salesforce Flow IDP extractDataFromDocument
+  → Return IDP extraction response
 ```
 
 | Step | Description |
 |------|-------------|
-| **HTTP Listener** | Accepts `POST /extract-data` with a `multipart/form-data` body. The file must be in a part named `file`. |
-| **Transform — Extract and Base64-encode File** | Reads the `file` part, extracts MIME type and filename, and Base64-encodes the binary content. |
-| **Set Variables** | Saves `fileBase64Content` and `fileMimeType` to flow variables before the Object Store retrieve overwrites the payload. |
-| **Object Store — Retrieve Token** | Reads `salesforce_access_token` into `vars.accessToken`. Propagates a `401` error if no token is cached. |
-| **Transform — Build IDP Request Body** | Constructs the JSON body with `fileContent`, `mimeType`, and `documentProcessingConfiguration` (from `config.yaml`). |
-| **HTTP Request — Salesforce Flow IDP** | POSTs to `/services/data/<apiVersion>/actions/standard/extractDataFromDocument` with `Authorization: Bearer <token>`. |
-| **Transform — Parse IDP Response** | Returns the full IDP response array including `extractedData`, confidence scores, and `needsManualReview`. |
+| **HTTP Listener** | Accepts `POST /extract-data` with a `multipart/form-data` body. File must be in a part named `file`. |
+| **Transform** | Reads the `file` part, extracts MIME type and filename, and Base64-encodes the binary content. |
+| **Set Variables** | Saves `fileBase64Content` and `fileMimeType` to flow variables before the Object Store retrieve replaces the payload. |
+| **Object Store** | Reads `salesforce_access_token` into `vars.accessToken`. Returns a `401` error if no token is cached. |
+| **Transform** | Builds the JSON request body with `fileContent`, `mimeType`, and `documentProcessingConfiguration` (from `config.yaml`). |
+| **HTTP Request** | POSTs to `/services/data/<apiVersion>/actions/standard/extractDataFromDocument` with `Authorization: Bearer <token>`. |
+| **Transform** | Passes through the full IDP response including `extractedData`, confidence scores, and `needsManualReview`. |
 
 ---
 
-## Request & Response
+## Configuration
+
+Edit `src/main/resources/config.yaml` before running the application. Copy `config.yaml.local` (gitignored) to store your real values locally.
+
+| Property | Default | Description |
+|----------|---------|-------------|
+| `salesforce.host` | `<your-salesforce-url>` | Your Salesforce instance hostname |
+| `salesforce.port` | `443` | HTTPS port |
+| `salesforce.basePath` | `/services/oauth2` | OAuth2 base path |
+| `salesforce.grantType` | `client_credentials` | OAuth2 grant type |
+| `salesforce.apiVersion` | `v67.0` | Salesforce API version |
+| `salesforce.idpConfigName` | `<your-idp-config-name>` | Name of your Flow IDP document extraction configuration |
+
+---
+
+## API Reference
 
 ### `POST /token`
+
+Obtains a Salesforce OAuth2 access token using the client credentials grant and stores it in the Object Store.
 
 **Request**
 ```http
@@ -87,7 +144,7 @@ curl -X POST http://localhost:8081/token \
   }'
 ```
 
-**Response**
+**Response — 200 OK**
 ```json
 {
   "access_token": "00D...",
@@ -100,6 +157,8 @@ curl -X POST http://localhost:8081/token \
 
 ### `GET /token/cached`
 
+Returns the access token currently held in the Object Store without re-authenticating.
+
 **Request**
 ```http
 GET http://localhost:8081/token/cached
@@ -110,14 +169,14 @@ GET http://localhost:8081/token/cached
 curl -X GET http://localhost:8081/token/cached
 ```
 
-**Response (token found)**
+**Response — 200 OK (token found)**
 ```json
 {
   "access_token": "00D..."
 }
 ```
 
-**Response (no token cached)**
+**Response — 200 OK (no token cached)**
 ```json
 {
   "error": "Token Not Found",
@@ -129,12 +188,16 @@ curl -X GET http://localhost:8081/token/cached
 
 ### `POST /extract-data`
 
+Submits a document to Salesforce Flow IDP for data extraction. Reads the cached access token from the Object Store — call `POST /token` first.
+
+Supported file types: **PDF**, **PNG**, **JPEG**.
+
 **Request**
 ```http
 POST http://localhost:8081/extract-data
 Content-Type: multipart/form-data
 
-file=<binary file content>   (PDF, PNG, or JPEG)
+file=<binary file>
 ```
 
 **curl**
@@ -143,7 +206,7 @@ curl -X POST http://localhost:8081/extract-data \
   -F "file=@/path/to/your/document.pdf"
 ```
 
-**Response**
+**Response — 200 OK**
 ```json
 [
   {
@@ -160,35 +223,28 @@ curl -X POST http://localhost:8081/extract-data \
 
 ---
 
-## Configuration
-
-Settings are loaded from `src/main/resources/config.yaml`:
-
-| Property | Value |
-|----------|-------|
-| `salesforce.host` | `<your-salesforce-url>` |
-| `salesforce.port` | `443` |
-| `salesforce.basePath` | `/services/oauth2` |
-| `salesforce.grantType` | `client_credentials` |
-| `salesforce.apiVersion` | `v67.0` |
-| `salesforce.idpConfigName` | `<your-idp-config-name>` |
-
----
-
 ## Error Handling
 
-| Flow | Error | Cause |
-|------|-------|-------|
-| `get-salesforce-access-token-flow` | `HTTP:UNAUTHORIZED` | Invalid `clientId` or `clientSecret` |
-| `get-salesforce-access-token-flow` | `HTTP:CONNECTIVITY` | Cannot reach the Salesforce OAuth2 endpoint |
-| `get-cached-salesforce-token-flow` | `ANY` | Unexpected error during Object Store retrieval |
-| `extract-data-flow` | `OS:KEY_NOT_FOUND` | No token cached — call `POST /token` first |
-| `extract-data-flow` | `HTTP:UNAUTHORIZED` | Cached token is expired — call `POST /token` to refresh |
-| `extract-data-flow` | `HTTP:BAD_REQUEST` | Unsupported file type or incorrect IDP config name |
-| `extract-data-flow` | `MULE:EXPRESSION` | Missing or malformed `file` part in the multipart body |
-| `extract-data-flow` | `ANY` | Unexpected error during file processing or IDP call |
+All error responses follow the same structure:
 
-All errors return a structured JSON body with `error`, `message`, and `details` fields.
+```json
+{
+  "error": "<error type>",
+  "message": "<human-readable description>",
+  "details": "<original error description>"
+}
+```
+
+| Endpoint | Error | Likely Cause |
+|----------|-------|--------------|
+| `POST /token` | `HTTP:UNAUTHORIZED` | Invalid `clientId` or `clientSecret` |
+| `POST /token` | `HTTP:CONNECTIVITY` | Cannot reach the Salesforce OAuth2 endpoint |
+| `GET /token/cached` | `ANY` | Unexpected error during Object Store retrieval |
+| `POST /extract-data` | `OS:KEY_NOT_FOUND` | No token cached — call `POST /token` first |
+| `POST /extract-data` | `HTTP:UNAUTHORIZED` | Cached token is expired — call `POST /token` to refresh |
+| `POST /extract-data` | `HTTP:BAD_REQUEST` | Unsupported file type or incorrect IDP configuration name |
+| `POST /extract-data` | `MULE:EXPRESSION` | Missing or malformed `file` part in the multipart body |
+| `POST /extract-data` | `ANY` | Unexpected error during file processing or IDP call |
 
 ---
 
