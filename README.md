@@ -77,6 +77,16 @@ Content-Type: application/json
 }
 ```
 
+**curl**
+```bash
+curl -X POST http://localhost:8081/token \
+  -H "Content-Type: application/json" \
+  -d '{
+    "clientId": "<your-connected-app-client-id>",
+    "clientSecret": "<your-connected-app-client-secret>"
+  }'
+```
+
 **Response**
 ```json
 {
@@ -93,6 +103,11 @@ Content-Type: application/json
 **Request**
 ```http
 GET http://localhost:8081/token/cached
+```
+
+**curl**
+```bash
+curl -X GET http://localhost:8081/token/cached
 ```
 
 **Response (token found)**
@@ -120,6 +135,12 @@ POST http://localhost:8081/extract-data
 Content-Type: multipart/form-data
 
 file=<binary file content>   (PDF, PNG, or JPEG)
+```
+
+**curl**
+```bash
+curl -X POST http://localhost:8081/extract-data \
+  -F "file=@/path/to/your/document.pdf"
 ```
 
 **Response**
