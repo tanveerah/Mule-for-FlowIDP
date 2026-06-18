@@ -18,6 +18,7 @@ POST /token  →  Build form body  →  POST Salesforce /services/oauth2/token  
 | **Transform — Build OAuth2 Request Body** | Reads `grant_type` from `config.yaml` and combines it with `clientId`/`clientSecret` from the request body into a `application/x-www-form-urlencoded` payload. |
 | **HTTP Request — Salesforce Token Endpoint** | POSTs the form body to `https://<your-salesforce-url>/services/oauth2/token` over HTTPS (port 443). |
 | **Transform — Extract Token** | Parses the Salesforce response and returns `access_token`, `token_type`, and `instance_url` as JSON. |
+| **Set Variable — Store Access Token** | Stores the retrieved `access_token` in a flow variable named `accessToken` for use by downstream processors. |
 
 ---
 
