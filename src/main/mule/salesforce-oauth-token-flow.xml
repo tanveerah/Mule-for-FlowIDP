@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+        http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+    <configuration-properties file="config.yaml"
+        doc:name="Configuration Properties"
+        doc:description="Loads Salesforce connection settings (host, port, basePath) from config.yaml resource file" />
+
+    <http:listener-config name="HTTP_Listener_config"
+        doc:name="HTTP Listener Config"
+        doc:description="HTTP listener configuration on host 0.0.0.0 port 8081 to receive incoming token requests">
+        <http:listener-connection host="0.0.0.0" port="8081" />
+    </http:listener-config>
+
+    <http:request-config name="Salesforce_OAuth_Request_Config"
+        doc:name="Salesforce OAuth Request Config"
+        doc:description="HTTPS request configuration targeting the Salesforce OAuth2 token endpoint at trailsignup-2e07dbad93a5ef.my.salesforce.com">
+        <http:request-connection
+            protocol="HTTPS"
+            host="${salesforce.host}"
+            port="${salesforce.port}" />
+    </http:request-config>
+
+    <flow name="get-salesforce-access-token-flow"
+        doc:name="Get Salesforce Access Token Flow"
+        doc:description="Exposes POST /token; accepts client_id and client_secret in the JSON request body and retrieves an OAuth2 access token from Salesforce using client credentials grant">
+
+        <http:listener path="/token" allowedMethods="POST"
+            config-ref="HTTP_Listener_config"
+            doc:name="POST /token"
+            doc:description="Receives incoming POST requests on /token with JSON body containing clientId and clientSecret to trigger Salesforce OAuth2 token retrieval" />
+
+        <logger level="INFO"
+            message="Requesting Salesforce OAuth2 access token using client credentials flow"
+            doc:name="Log token request start"
+            doc:description="Logs the initiation of the Salesforce OAuth2 token request before calling the token endpoint" />
+
+        <ee:transform
+            doc:name="Build OAuth2 Request Body"
+            doc:description="Reads grant_type from config.yaml and clientId and clientSecret from the POST request body; builds a URL-encoded form body for the Salesforce OAuth2 token request">
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/x-www-form-urlencoded
+---
+{
+    grant_type: p("salesforce.grantType"),
+    client_id: payload.clientId,
+    client_secret: payload.clientSecret
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+
+        <http:request method="POST" path="/services/oauth2/token"
+            config-ref="Salesforce_OAuth_Request_Config"
+            doc:name="POST to Salesforce OAuth2 Token Endpoint"
+            doc:description="Posts client credentials as URL-encoded form data to Salesforce /services/oauth2/token to obtain an access token">
+            <http:headers><![CDATA[#[{"Content-Type": "application/x-www-form-urlencoded"}]]]></http:headers>
+        </http:request>
+
+        <ee:transform
+            doc:name="Extract Access Token from Response"
+            doc:description="Extracts access_token, token_type, and instance_url from the Salesforce OAuth2 JSON response and returns them as the HTTP response payload">
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    access_token: payload.access_token,
+    token_type: payload.token_type,
+    instance_url: payload.instance_url
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+
+        <logger level="INFO"
+            message="#['Salesforce access token retrieved successfully. Token type: ' ++ (payload.token_type default 'unknown')]"
+            doc:name="Log token retrieval success"
+            doc:description="Logs that the Salesforce OAuth2 access token was retrieved successfully, including the token type" />
+
+        <error-handler>
+            <on-error-propagate type="HTTP:UNAUTHORIZED"
+                doc:name="Handle Unauthorized"
+                doc:description="Handles 401 Unauthorized from Salesforce; typically caused by invalid client_id or client_secret in config.yaml">
+                <ee:transform
+                    doc:name="Build 401 Error Response"
+                    doc:description="Formats a JSON error body explaining that the Salesforce credentials are invalid">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    error: "Unauthorized",
+    message: "Failed to obtain Salesforce access token. Verify the clientId and clientSecret in the request body.",
+    details: error.description
+}]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+            </on-error-propagate>
+            <on-error-propagate type="HTTP:CONNECTIVITY"
+                doc:name="Handle Connectivity Error"
+                doc:description="Handles connectivity failures when reaching the Salesforce OAuth2 endpoint; check the host in config.yaml">
+                <ee:transform
+                    doc:name="Build Connectivity Error Response"
+                    doc:description="Formats a JSON error body for connectivity failures to the Salesforce OAuth2 endpoint">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    error: "Connectivity Error",
+    message: "Unable to connect to Salesforce OAuth2 endpoint. Check the Salesforce host in config.yaml.",
+    details: error.description
+}]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+            </on-error-propagate>
+        </error-handler>
+    </flow>
+
+</mule>

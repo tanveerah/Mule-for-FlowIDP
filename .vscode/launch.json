@@ -1,0 +1,15 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "mule-xml-debugger",
+      "request": "launch",
+      "name": "Run MuleFlow-IDP",
+      "noDebug": true,
+      "mule.projects": [
+        "${workspaceFolder:MuleFlow-IDP}"
+      ],
+      "mule.runtime.args": "${config:mule.runtime.defaultArguments}"
+    }
+  ]
+}
