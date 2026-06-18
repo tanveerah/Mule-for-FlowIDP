@@ -171,7 +171,7 @@ Settings are loaded from `src/main/resources/config.yaml`:
 | `salesforce.basePath` | `/services/oauth2` |
 | `salesforce.grantType` | `client_credentials` |
 | `salesforce.apiVersion` | `v67.0` |
-| `salesforce.idpConfigName` | `Extract_from_DL` |
+| `salesforce.idpConfigName` | `<your-idp-config-name>` |
 
 ---
 
