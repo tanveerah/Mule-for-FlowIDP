@@ -39,7 +39,7 @@ Content-Type: application/json
 {
   "access_token": "00D...",
   "token_type": "Bearer",
-  "instance_url": "https://trailsignup-2e07dbad93a5ef.my.salesforce.com"
+  "instance_url": "https://<your-salesforce-url>"
 }
 ```
 
@@ -51,7 +51,7 @@ Settings are loaded from `src/main/resources/config.yaml`:
 
 | Property | Value |
 |----------|-------|
-| `salesforce.host` | `trailsignup-2e07dbad93a5ef.my.salesforce.com` |
+| `salesforce.host` | `<your-salesforce-url>` |
 | `salesforce.port` | `443` |
 | `salesforce.basePath` | `/services/oauth2` |
 | `salesforce.grantType` | `client_credentials` |

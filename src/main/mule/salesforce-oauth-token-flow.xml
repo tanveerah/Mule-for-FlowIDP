@@ -21,7 +21,7 @@
 
     <http:request-config name="Salesforce_OAuth_Request_Config"
         doc:name="Salesforce OAuth Request Config"
-        doc:description="HTTPS request configuration targeting the Salesforce OAuth2 token endpoint at trailsignup-2e07dbad93a5ef.my.salesforce.com">
+        doc:description="HTTPS request configuration targeting the Salesforce OAuth2 token endpoint at your Salesforce instance URL">
         <http:request-connection
             protocol="HTTPS"
             host="${salesforce.host}"

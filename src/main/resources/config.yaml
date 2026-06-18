@@ -1,6 +1,6 @@
 salesforce:
-  tokenUrl: "https://trailsignup-2e07dbad93a5ef.my.salesforce.com/services/oauth2/token"
-  host: "trailsignup-2e07dbad93a5ef.my.salesforce.com"
+  tokenUrl: "https://<your-salesforce-url>/services/oauth2/token"
+  host: "<your-salesforce-url>"
   port: "443"
   basePath: "/services/oauth2"
   grantType: "client_credentials"
