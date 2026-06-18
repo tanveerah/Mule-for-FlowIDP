@@ -50,3 +50,7 @@ velocity.log
 # ACB defaults #
 # ------------------------------------------------------------------------------ #
 .tooling-project
+# -------------- #
+# Local secrets  #
+# -------------- #
+config.yaml.local
